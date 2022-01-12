@@ -12,7 +12,7 @@ use graph::{
     log::logger,
     prelude::{info, o, slog, tokio, Logger, NodeId},
 };
-use graph_node::{manager::PanicSubscriptionManager, store_builder::StoreBuilder};
+use graph_node::{manager::PanicSubscriptionManager, store_builder::StoreBuilder, MetricsContext};
 use graph_store_postgres::{
     connection_pool::ConnectionPool, BlockStore, Shard, Store, SubgraphStore, SubscriptionManager,
     PRIMARY_SHARD,
@@ -154,6 +154,12 @@ pub enum Command {
 
         /// Highest block number to process before stopping (inclusive)
         stop_block: i32,
+
+        /// Prometheus job name for reporting
+        job_name: Option<String>,
+
+        /// Prometheus push gateway endpoint.
+        prometheus_host: Option<String>,
     },
     /// Check and interrogate the configuration
     ///
@@ -406,6 +412,7 @@ struct Context {
     node_id: NodeId,
     config: Cfg,
     registry: Arc<MetricsRegistry>,
+    pub prometheus_registry: Arc<Registry>,
 }
 
 impl Context {
@@ -421,6 +428,7 @@ impl Context {
             node_id,
             config,
             registry,
+            prometheus_registry,
         }
     }
 
@@ -473,8 +481,14 @@ impl Context {
         pools
     }
 
-    async fn store_builder(self) -> StoreBuilder {
-        StoreBuilder::new(&self.logger, &self.node_id, &self.config, self.registry).await
+    async fn store_builder(&self) -> StoreBuilder {
+        StoreBuilder::new(
+            &self.logger,
+            &self.node_id,
+            &self.config,
+            self.registry.clone(),
+        )
+        .await
     }
 
     fn store_and_pools(self) -> (Arc<Store>, HashMap<Shard, ConnectionPool>) {
@@ -652,19 +666,27 @@ async fn main() {
             network_name,
             subgraph,
             stop_block,
+            job_name,
+            prometheus_host,
         } => {
             let logger = ctx.logger.clone();
             let config = ctx.config();
             let registry = ctx.metrics_registry().clone();
             let node_id = ctx.node_id().clone();
             let store_builder = ctx.store_builder().await;
+            let metrics_ctx = MetricsContext {
+                prometheus: ctx.prometheus_registry.clone(),
+                registry: registry.clone(),
+                prometheus_host,
+                job_name,
+            };
 
             commands::run::run(
                 logger,
                 store_builder,
                 network_name,
                 config,
-                registry,
+                metrics_ctx,
                 node_id,
                 subgraph,
                 stop_block,

@@ -7,6 +7,7 @@ use crate::config::{Config, ProviderDetails};
 use crate::manager::deployment::Deployment;
 use crate::manager::PanicSubscriptionManager;
 use crate::store_builder::StoreBuilder;
+use crate::MetricsContext;
 use ethereum::{EthereumNetworks, ProviderEthRpcMetrics};
 use futures::future::join_all;
 use futures::TryFutureExt;
@@ -36,7 +37,7 @@ pub async fn run(
     store_builder: StoreBuilder,
     network_name: String,
     config: Config,
-    metrics_registry: Arc<MetricsRegistry>,
+    metrics_ctx: MetricsContext,
     node_id: NodeId,
     subgraph: String,
     stop_block: BlockNumber,
@@ -46,6 +47,7 @@ pub async fn run(
         subgraph, stop_block
     );
 
+    let metrics_registry = metrics_ctx.registry.clone();
     let logger_factory = LoggerFactory::new(logger.clone(), None);
 
     // FIXME: Hard-coded IPFS config, take it from config file instead?
@@ -204,6 +206,16 @@ pub async fn run(
     }
     info!(&logger, "Removing subgraph {}", name);
     subgraph_store.clone().remove_subgraph(subgraph_name)?;
+
+    if let Some(host) = metrics_ctx.prometheus_host {
+        let mfs = metrics_ctx.prometheus.gather();
+        let job_name = match metrics_ctx.job_name {
+            Some(name) => name,
+            None => "graphman run".into(),
+        };
+
+        prometheus::push_metrics(&job_name, HashMap::new(), &host, mfs, None)?
+    }
 
     Ok(())
 }
