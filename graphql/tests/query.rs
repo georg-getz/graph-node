@@ -3,7 +3,6 @@ extern crate pretty_assertions;
 
 use graph::data::value::Object;
 use graphql_parser::Pos;
-use std::convert::TryFrom;
 use std::iter::FromIterator;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -1286,17 +1285,13 @@ fn cannot_filter_by_derved_relationship_fields() {
         .await;
 
         match &result.to_result().unwrap_err()[0] {
-            QueryError::ExecutionError(QueryExecutionError::InvalidArgumentError(_, s, v)) => {
-                assert_eq!(s, "where");
+            QueryError::ExecutionError(QueryExecutionError::ValidationError(_, error_message)) => {
                 assert_eq!(
-                    r::Value::try_from(v.clone()).unwrap(),
-                    object_value(vec![(
-                        "writtenSongs",
-                        r::Value::List(vec![r::Value::String(String::from("s1"))])
-                    )]),
+                    error_message,
+                    "Field \"writtenSongs\" is not defined by type \"Musician_filter\"."
                 );
             }
-            e => panic!("expected ResolveEntitiesError, got {}", e),
+            e => panic!("expected ResolveEntitiesError, got {:?}", e),
         };
     })
 }
@@ -1696,7 +1691,7 @@ fn query_at_block_with_vars() {
             qid: &str,
         ) {
             let query =
-                "query by_hash($block: String!) { musicians(block: { hash: $block }) { id } }";
+                "query by_hash($block: Bytes!) { musicians(block: { hash: $block }) { id } }";
             let var = Some(("block", r::Value::String(block.hash.to_owned())));
 
             check_musicians_at(&deployment.hash, query, var, expected, qid).await;
