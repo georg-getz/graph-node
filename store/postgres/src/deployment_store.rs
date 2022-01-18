@@ -694,6 +694,15 @@ impl DeploymentStore {
         )?)
     }
 
+    pub(crate) fn delete_block_cursor(&self, site: &Site) -> Result<(), StoreError> {
+        let conn = self.get_conn()?;
+
+        Ok(deployment::delete_subgraph_firehose_cursor(
+            &conn,
+            &site.deployment,
+        )?)
+    }
+
     pub(crate) async fn supports_proof_of_indexing<'a>(
         &self,
         site: Arc<Site>,

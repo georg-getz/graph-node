@@ -468,27 +468,26 @@ async fn new_block_stream<C: Blockchain>(
         false => BUFFERED_BLOCK_STREAM_SIZE,
     };
 
+    let subgraph_start_block = inputs.store.block_ptr();
+
     let block_stream = match is_firehose {
         true => chain.new_firehose_block_stream(
             inputs.deployment.clone(),
             inputs.store.clone(),
             inputs.start_blocks.clone(),
+            subgraph_start_block,
             Arc::new(filter.clone()),
             block_stream_metrics.clone(),
             inputs.unified_api_version.clone(),
         ),
-        false => {
-            let start_block = inputs.store.block_ptr();
-
-            chain.new_polling_block_stream(
-                inputs.deployment.clone(),
-                inputs.start_blocks.clone(),
-                start_block,
-                Arc::new(filter.clone()),
-                block_stream_metrics.clone(),
-                inputs.unified_api_version.clone(),
-            )
-        }
+        false => chain.new_polling_block_stream(
+            inputs.deployment.clone(),
+            inputs.start_blocks.clone(),
+            subgraph_start_block,
+            Arc::new(filter.clone()),
+            block_stream_metrics.clone(),
+            inputs.unified_api_version.clone(),
+        ),
     }
     .await?;
 
@@ -556,25 +555,14 @@ where
 
             let (block, cursor) = match event {
                 Some(Ok(BlockStreamEvent::ProcessBlock(block, cursor))) => (block, cursor),
-                Some(Ok(BlockStreamEvent::Revert(subgraph_ptr, parent_ptr, cursor))) => {
-                    info!(
-                        logger,
-                        "Reverting block to get back to main chain";
-                        "block_number" => format!("{}", subgraph_ptr.number),
-                        "block_hash" => format!("{}", subgraph_ptr.hash)
-                    );
+                Some(Ok(BlockStreamEvent::Revert(subgraph_ptr, revert_to_ptr, cursor))) => {
+                    info!(&logger, "Reverting block to get back to main chain"; "current" => &subgraph_ptr, "revert_to" => &revert_to_ptr);
 
                     if let Err(e) = inputs
                         .store
-                        .revert_block_operations(parent_ptr, cursor.as_deref())
+                        .revert_block_operations(revert_to_ptr, cursor.as_deref())
                     {
-                        error!(
-                            &logger,
-                            "Could not revert block. Retrying";
-                            "block_number" => format!("{}", subgraph_ptr.number),
-                            "block_hash" => format!("{}", subgraph_ptr.hash),
-                            "error" => e.to_string(),
-                        );
+                        error!(&logger, "Could not revert block. Retrying"; "error" => %e);
 
                         // Exit inner block stream consumption loop and go up to loop that restarts subgraph
                         break;
@@ -616,15 +604,11 @@ where
             };
 
             let block_ptr = block.ptr();
-
-            match inputs.stop_block.clone() {
-                Some(stop_block) => {
-                    if block_ptr.number > stop_block {
-                        info!(&logger, "stop block reached for subgraph");
-                        return Ok(());
-                    }
+            if let Some(ref stop_block) = inputs.stop_block {
+                if block_ptr.number > *stop_block {
+                    info!(&logger, "stop block reached for subgraph");
+                    return Ok(());
                 }
-                _ => {}
             }
 
             if block.trigger_count() > 0 {

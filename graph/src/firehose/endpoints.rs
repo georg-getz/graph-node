@@ -2,6 +2,7 @@ use crate::{
     blockchain::Block as BlockchainBlock,
     blockchain::BlockPtr,
     cheap_clone::CheapClone,
+    components::store::BlockNumber,
     firehose::{decode_firehose_block, ForkStep},
     prelude::{debug, info},
 };
@@ -76,6 +77,18 @@ impl FirehoseEndpoint {
     where
         M: prost::Message + BlockchainBlock + Default + 'static,
     {
+        info!(logger, "Requesting genesis block from firehose");
+        self.irreversible_block_ptr_for_number::<M>(logger, 0).await
+    }
+
+    pub async fn irreversible_block_ptr_for_number<M>(
+        &self,
+        logger: &Logger,
+        number: BlockNumber,
+    ) -> Result<BlockPtr, anyhow::Error>
+    where
+        M: prost::Message + BlockchainBlock + Default + 'static,
+    {
         let token_metadata = match self.token.clone() {
             Some(token) => Some(MetadataValue::from_str(token.as_str())?),
             None => None,
@@ -92,10 +105,13 @@ impl FirehoseEndpoint {
             },
         );
 
-        debug!(logger, "Connecting to firehose to retrieve genesis block");
+        debug!(
+            logger,
+            "Connecting to firehose to retrieve irreversible block"
+        );
         let response_stream = client
             .blocks(firehose::Request {
-                start_block_num: 0,
+                start_block_num: number as i64,
                 fork_steps: vec![ForkStep::StepIrreversible as i32],
                 ..Default::default()
             })
@@ -103,14 +119,14 @@ impl FirehoseEndpoint {
 
         let mut block_stream = response_stream.into_inner();
 
-        info!(logger, "Requesting genesis block from firehose");
+        debug!(logger, "Requesting irrveresible block from firehose");
         let next = block_stream.next().await;
 
         match next {
             Some(Ok(v)) => Ok(decode_firehose_block::<M>(&v)?.ptr()),
             Some(Err(e)) => Err(anyhow::format_err!("firehose error {}", e)),
             None => Err(anyhow::format_err!(
-                "firehose should have returned one block for genesis block request"
+                "Firehose should have returned one block for block request"
             )),
         }
     }

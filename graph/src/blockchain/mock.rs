@@ -298,6 +298,7 @@ impl Blockchain for MockBlockchain {
         _deployment: crate::components::store::DeploymentLocator,
         _store: Arc<dyn crate::components::store::WritableStore>,
         _start_blocks: Vec<crate::components::store::BlockNumber>,
+        _subgraph_start_block: Option<BlockPtr>,
         _filter: std::sync::Arc<Self::TriggerFilter>,
         _metrics: std::sync::Arc<block_stream::BlockStreamMetrics>,
         _unified_api_version: crate::data::subgraph::UnifiedMappingApiVersion,
