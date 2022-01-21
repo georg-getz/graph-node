@@ -6,6 +6,7 @@ use graph::blockchain::block_stream::{BlockStream, BufferedBlockStream};
 use graph::blockchain::{BlockchainKind, DataSource};
 use graph::data::store::scalar::Bytes;
 use graph::data::subgraph::{UnifiedMappingApiVersion, MAX_SPEC_VERSION};
+use graph::env::env_var;
 use graph::prelude::{SubgraphInstanceManager as SubgraphInstanceManagerTrait, *};
 use graph::util::{backoff::ExponentialBackoff, lfu_cache::LfuCache};
 use graph::{blockchain::block_stream::BlockStreamMetrics, components::store::WritableStore};
@@ -29,6 +30,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::task;
 
+const SECOND: Duration = Duration::from_secs(1);
 const MINUTE: Duration = Duration::from_secs(60);
 
 const BUFFERED_BLOCK_STREAM_SIZE: usize = 100;
@@ -519,6 +521,13 @@ where
     // increasing its timeout exponentially until it reaches the ceiling.
     let mut backoff = ExponentialBackoff::new(MINUTE * 2, *SUBGRAPH_ERROR_RETRY_CEIL_SECS);
 
+    // This ensures that any existing Firehose cursor is deleted prior starting using a
+    // non-Firehose block stream so that if we ever resume again the Firehose block stream,
+    // we will not start from a stalled cursor.
+    if !inputs.chain.is_firehose_supported() {
+        delete_subgraph_firehose_cursor(&logger, inputs.store.as_ref()).await;
+    }
+
     loop {
         debug!(logger, "Starting or restarting subgraph");
 
@@ -785,6 +794,24 @@ where
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+async fn delete_subgraph_firehose_cursor(logger: &Logger, store: &dyn WritableStore) {
+    debug!(logger, "Deleting any existing Firehose cursor");
+    let mut backoff = ExponentialBackoff::new(30 * SECOND, *SUBGRAPH_ERROR_RETRY_CEIL_SECS);
+
+    loop {
+        match store.delete_block_cursor() {
+            Ok(_) => return,
+            Err(_) => {
+                error!(
+                    logger,
+                    "Unable to delete firehose cursor, waiting and retrying again"
+                );
+                backoff.sleep_async().await;
             }
         }
     }

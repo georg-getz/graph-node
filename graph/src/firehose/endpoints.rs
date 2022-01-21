@@ -78,10 +78,15 @@ impl FirehoseEndpoint {
         M: prost::Message + BlockchainBlock + Default + 'static,
     {
         info!(logger, "Requesting genesis block from firehose");
-        self.irreversible_block_ptr_for_number::<M>(logger, 0).await
+
+        // We use 0 here to mean the genesis block of the chain. Firehose
+        // when seeing start block number 0 will always return the genesis
+        // block of the chain, even if the chain's start block number is
+        // not starting at block #0.
+        self.block_ptr_for_number::<M>(logger, 0).await
     }
 
-    pub async fn irreversible_block_ptr_for_number<M>(
+    pub async fn block_ptr_for_number<M>(
         &self,
         logger: &Logger,
         number: BlockNumber,
@@ -96,37 +101,57 @@ impl FirehoseEndpoint {
 
         let mut client = firehose::stream_client::StreamClient::with_interceptor(
             self.channel.cheap_clone(),
-            move |mut r: Request<()>| match token_metadata.as_ref() {
-                Some(t) => {
+            move |mut r: Request<()>| {
+                if let Some(ref t) = token_metadata {
                     r.metadata_mut().insert("authorization", t.clone());
-                    Ok(r)
                 }
-                _ => Ok(r),
+
+                Ok(r)
             },
         );
 
         debug!(
             logger,
-            "Connecting to firehose to retrieve irreversible block"
+            "Connecting to firehose to retrieve block for number {}", number
         );
+
+        // The trick is the following.
+        //
+        // Firehose `start_block_num` and `stop_block_num` are both inclusive, so we specify
+        // the block we are looking for in both.
+        //
+        // Now, the remaining question is how the block from the canonical chain is picked. We
+        // leverage the fact that Firehose will always send the block in the longuest chain as the
+        // last message of this request.
+        //
+        // That way, we either get the final block if the block is now in a final segment of the
+        // chain (or probabilisticly if not finality concept exists for the chain). Or we get the
+        // block that is in the longuest chain according to Firehose.
         let response_stream = client
             .blocks(firehose::Request {
                 start_block_num: number as i64,
-                fork_steps: vec![ForkStep::StepIrreversible as i32],
+                stop_block_num: number as u64,
+                fork_steps: vec![ForkStep::StepNew as i32, ForkStep::StepIrreversible as i32],
                 ..Default::default()
             })
             .await?;
 
         let mut block_stream = response_stream.into_inner();
 
-        debug!(logger, "Requesting irrveresible block from firehose");
-        let next = block_stream.next().await;
+        debug!(logger, "Retrieving block(s) from firehose");
 
-        match next {
-            Some(Ok(v)) => Ok(decode_firehose_block::<M>(&v)?.ptr()),
-            Some(Err(e)) => Err(anyhow::format_err!("firehose error {}", e)),
+        let mut block_in_longuest_chain: Option<BlockPtr> = None;
+        while let Some(message) = block_stream.next().await {
+            match message {
+                Ok(v) => block_in_longuest_chain = Some(decode_firehose_block::<M>(&v)?.ptr()),
+                Err(e) => return Err(anyhow::format_err!("firehose error {}", e)),
+            };
+        }
+
+        match block_in_longuest_chain {
+            Some(block_ptr) => Ok(block_ptr),
             None => Err(anyhow::format_err!(
-                "Firehose should have returned one block for block request"
+                "Firehose should have returned at least one block for request"
             )),
         }
     }
@@ -142,12 +167,12 @@ impl FirehoseEndpoint {
 
         let mut client = firehose::stream_client::StreamClient::with_interceptor(
             self.channel.cheap_clone(),
-            move |mut r: Request<()>| match token_metadata.as_ref() {
-                Some(t) => {
+            move |mut r: Request<()>| {
+                if let Some(ref t) = token_metadata {
                     r.metadata_mut().insert("authorization", t.clone());
-                    Ok(r)
                 }
-                _ => Ok(r),
+
+                Ok(r)
             },
         );
 

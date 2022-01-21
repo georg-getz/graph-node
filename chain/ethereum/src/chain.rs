@@ -603,12 +603,12 @@ impl FirehoseMapperTrait<Chain> for FirehoseMapper {
         // behind the current block. The magic value 200 here comes from this hard-coded Firehose
         // value.
         let final_block_number = match block.number() {
-            x if x >= 200 => 200,
+            x if x >= 200 => x - 200,
             _ => 0,
         };
 
         self.endpoint
-            .irreversible_block_ptr_for_number::<codec::HeaderOnlyBlock>(logger, final_block_number)
+            .block_ptr_for_number::<codec::HeaderOnlyBlock>(logger, final_block_number)
             .await
     }
 }

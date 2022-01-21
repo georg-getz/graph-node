@@ -1024,9 +1024,9 @@ impl DeploymentStore {
         // Unwrap: If we are reverting then the block ptr is not `None`.
         let block_ptr_from = Self::block_ptr_with_conn(&site.deployment, &conn)?.unwrap();
 
-        // Sanity check on block numbers
-        if block_ptr_from.number != block_ptr_to.number + 1 {
-            panic!("revert_block_operations must revert a single block only");
+        // Sanity check on revert to ensure we go backward only
+        if block_ptr_to.number >= block_ptr_from.number {
+            panic!("revert_block_operations must revert only backward, you are trying to revert forward going from subgraph block {} to new block {}", block_ptr_from, block_ptr_to);
         }
 
         self.rewind_with_conn(&conn, site, block_ptr_to, firehose_cursor)

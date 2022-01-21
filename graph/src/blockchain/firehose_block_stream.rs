@@ -130,6 +130,8 @@ fn stream_blocks<C: Blockchain, F: FirehoseMapper<C>>(
                     info!(&logger, "Blockstream connected");
                     backoff.reset();
 
+                    let mut expected_stream_end = false;
+
                     for await response in stream {
                         match process_firehose_response(
                             response,
@@ -145,18 +147,11 @@ fn stream_blocks<C: Blockchain, F: FirehoseMapper<C>>(
 
                                 latest_cursor = cursor;
                             },
-                            Ok(BlockResponse::Rewind(wrong_block, revert_to)) => {
+                            Ok(BlockResponse::Rewind(revert_to)) => {
                                 let subgraph_block = subgraph_start_block
                                     .as_ref()
                                     .cloned()
                                     .expect("Rewinding means there is an inconsistency when starting from subgraph block ptr, so it must be defined");
-
-                                warn!(&logger,
-                                    "Firehose selected first streamed block's parent should match subgraph start block, reverting to last know final chain segment";
-                                    "subgraph_start_block" => &subgraph_block,
-                                    "firehose_start_block" => &wrong_block,
-                                    "reverting_to" => &revert_to,
-                                );
 
                                 // It's totally correct to pass the None as the cursor here, if we are here, there
                                 // was no cursor before anyway, so it's totally fine to pass `None`
@@ -170,16 +165,20 @@ fn stream_blocks<C: Blockchain, F: FirehoseMapper<C>>(
                                 // we need to move to "next" block.
                                 start_block_num = revert_to.number + 1;
                                 subgraph_start_block = Some(revert_to);
+                                expected_stream_end = true;
                                 break;
                             },
                             Err(err) => {
-                                error!(logger, "{}", err);
+                                error!(logger, "{:#}", err);
+                                expected_stream_end = true;
                                 break;
                             }
                         }
-                     }
+                    }
 
-                    error!(logger, "Stream blocks complete unexpectedly, expecting stream to always stream blocks");
+                    if !expected_stream_end {
+                        error!(logger, "Stream blocks complete unexpectedly, expecting stream to always stream blocks");
+                    }
                 },
                 Err(e) => {
                     error!(logger, "Unable to connect to endpoint: {:?}", e);
@@ -196,7 +195,7 @@ fn stream_blocks<C: Blockchain, F: FirehoseMapper<C>>(
 
 enum BlockResponse<C: Blockchain> {
     Proceed(BlockStreamEvent<C>, String),
-    Rewind(BlockPtr, BlockPtr),
+    Rewind(BlockPtr),
 }
 
 async fn process_firehose_response<C: Blockchain, F: FirehoseMapper<C>>(
@@ -224,12 +223,18 @@ async fn process_firehose_response<C: Blockchain, F: FirehoseMapper<C>>(
         if let BlockStreamEvent::ProcessBlock(ref block, _) = event {
             let previous_block_ptr = block.parent_ptr();
             if previous_block_ptr.is_some() && previous_block_ptr.as_ref() != subgraph_start_block {
+                warn!(&logger,
+                    "Firehose selected first streamed block's parent should match subgraph start block, reverting to last know final chain segment";
+                    "subgraph_start_block" => &subgraph_start_block.unwrap(),
+                    "firehose_start_block" => &previous_block_ptr.unwrap(),
+                );
+
                 let revert_to = mapper
                     .final_block_ptr_for(logger, &block.block)
                     .await
                     .context("Could not fetch final block to revert to")?;
 
-                return Ok(BlockResponse::Rewind(block.ptr(), revert_to));
+                return Ok(BlockResponse::Rewind(revert_to));
             }
         }
 

@@ -48,7 +48,7 @@ pub struct Block {
 /// is required and greatly reduced required memory.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct HeaderOnlyBlock {
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag = "5")]
     pub header: ::core::option::Option<BlockHeader>,
 }
 /// BlockWithRefs is a lightweight block, with traces and transactions
