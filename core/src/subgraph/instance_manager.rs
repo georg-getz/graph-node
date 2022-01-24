@@ -6,7 +6,7 @@ use graph::blockchain::block_stream::{BlockStream, BufferedBlockStream};
 use graph::blockchain::{BlockchainKind, DataSource};
 use graph::data::store::scalar::Bytes;
 use graph::data::subgraph::{UnifiedMappingApiVersion, MAX_SPEC_VERSION};
-use graph::env::env_var;
+
 use graph::prelude::{SubgraphInstanceManager as SubgraphInstanceManagerTrait, *};
 use graph::util::{backoff::ExponentialBackoff, lfu_cache::LfuCache};
 use graph::{blockchain::block_stream::BlockStreamMetrics, components::store::WritableStore};
