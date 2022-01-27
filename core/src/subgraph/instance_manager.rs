@@ -616,9 +616,9 @@ where
 
             let block_ptr = block.ptr();
 
-            match inputs.stop_block.clone() {
+            match &inputs.stop_block {
                 Some(stop_block) => {
-                    if block_ptr.number > stop_block {
+                    if block_ptr.number > *stop_block {
                         info!(&logger, "stop block reached for subgraph");
                         return Ok(());
                     }
