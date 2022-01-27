@@ -527,6 +527,7 @@ where
         let filter = ctx.state.filter.clone();
         let stream_inputs = inputs.clone();
         let start_block = inputs.store.block_ptr();
+        let mut deployment_head = start_block.clone();
         let mut block_stream =
             new_block_stream(stream_inputs, start_block, filter, metrics.cheap_clone())
                 .await?
@@ -616,9 +617,9 @@ where
 
             let block_ptr = block.ptr();
 
-            match &inputs.stop_block {
-                Some(stop_block) => {
-                    if block_ptr.number > *stop_block {
+            match (&inputs.stop_block, &deployment_head) {
+                (Some(stop_block), Some(deployment_head)) => {
+                    if deployment_head.number > *stop_block {
                         info!(&logger, "stop block reached for subgraph");
                         return Ok(());
                     }
@@ -676,6 +677,7 @@ where
 
             match res {
                 Ok(needs_restart) => {
+                    deployment_head = Some(block_ptr.clone());
                     // Once synced, no need to try to update the status again.
                     if !synced && is_deployment_synced(&block_ptr, chain_store.cached_head_ptr()?) {
                         // Updating the sync status is an one way operation.
