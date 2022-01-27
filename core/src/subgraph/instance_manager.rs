@@ -457,6 +457,7 @@ where
 
 async fn new_block_stream<C: Blockchain>(
     inputs: Arc<IndexingInputs<C>>,
+    start_block: Option<BlockPtr>,
     filter: C::TriggerFilter,
     block_stream_metrics: Arc<BlockStreamMetrics>,
 ) -> Result<Box<dyn BlockStream<C>>, Error> {
@@ -477,18 +478,14 @@ async fn new_block_stream<C: Blockchain>(
             block_stream_metrics.clone(),
             inputs.unified_api_version.clone(),
         ),
-        false => {
-            let start_block = inputs.store.block_ptr();
-
-            chain.new_polling_block_stream(
-                inputs.deployment.clone(),
-                inputs.start_blocks.clone(),
-                start_block,
-                Arc::new(filter.clone()),
-                block_stream_metrics.clone(),
-                inputs.unified_api_version.clone(),
-            )
-        }
+        false => chain.new_polling_block_stream(
+            inputs.deployment.clone(),
+            inputs.start_blocks.clone(),
+            start_block,
+            Arc::new(filter.clone()),
+            block_stream_metrics.clone(),
+            inputs.unified_api_version.clone(),
+        ),
     }
     .await?;
 
@@ -529,10 +526,12 @@ where
         let metrics = ctx.block_stream_metrics.clone();
         let filter = ctx.state.filter.clone();
         let stream_inputs = inputs.clone();
-        let mut block_stream = new_block_stream(stream_inputs, filter, metrics.cheap_clone())
-            .await?
-            .map_err(CancelableError::Error)
-            .cancelable(&block_stream_canceler, || Err(CancelableError::Cancel));
+        let start_block = inputs.store.block_ptr();
+        let mut block_stream =
+            new_block_stream(stream_inputs, start_block, filter, metrics.cheap_clone())
+                .await?
+                .map_err(CancelableError::Error)
+                .cancelable(&block_stream_canceler, || Err(CancelableError::Cancel));
         let chain = inputs.chain.clone();
         let chain_store = chain.chain_store();
 
