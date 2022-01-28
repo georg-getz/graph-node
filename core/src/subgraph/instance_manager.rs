@@ -30,6 +30,8 @@ use std::time::{Duration, Instant};
 use tokio::task;
 
 const MINUTE: Duration = Duration::from_secs(60);
+// const THRESHOLD: Duration = Duration::from_secs(30);
+const THRESHOLD: Duration = Duration::from_secs(60 * 5);
 
 const BUFFERED_BLOCK_STREAM_SIZE: usize = 100;
 const BUFFERED_FIREHOSE_STREAM_SIZE: usize = 1;
@@ -512,6 +514,7 @@ where
     let mut should_try_unfail_deterministic = true;
     let mut should_try_unfail_non_deterministic = true;
     let mut synced = false;
+    let mut skip_pointer_updates_timer = Instant::now();
 
     // Exponential backoff that starts with two minutes and keeps
     // increasing its timeout exponentially until it reaches the ceiling.
@@ -632,6 +635,12 @@ where
                 subgraph_metrics
                     .block_trigger_count
                     .observe(block.trigger_count() as f64);
+            }
+
+            if block.trigger_count() == 0 && skip_pointer_updates_timer.elapsed() <= THRESHOLD {
+                continue;
+            } else {
+                skip_pointer_updates_timer = Instant::now();
             }
 
             let start = Instant::now();
