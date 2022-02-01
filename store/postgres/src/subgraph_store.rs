@@ -16,7 +16,7 @@ use graph::{
     components::{
         server::index_node::VersionInfo,
         store::{
-            self, DeploymentLocator, EnsLookup as EnsLookupTrait, EntityType,
+            self, DeploymentLocator, EnsLookup as EnsLookupTrait,
             WritableStore as WritableStoreTrait,
         },
     },
@@ -950,11 +950,11 @@ impl SubgraphStoreInner {
 
     pub async fn analyze(
         &self,
-        id: &DeploymentHash,
-        entity_type: EntityType,
+        deployment: &DeploymentLocator,
+        entity_name: &str,
     ) -> Result<(), StoreError> {
-        let (store, site) = self.store(&id)?;
-        store.analyze(site, entity_type).await
+        let (store, site) = self.store(&deployment.hash)?;
+        store.analyze(site, entity_name).await
     }
 
     pub async fn create_manual_index(
