@@ -499,25 +499,25 @@ impl Context {
         self.node_id.clone()
     }
 
-    fn primary_pool(self) -> ConnectionPool {
+    fn primary_pool(&self) -> ConnectionPool {
         let primary = self.config.primary_store();
         let pool = StoreBuilder::main_pool(
             &self.logger,
             &self.node_id,
             PRIMARY_SHARD.as_str(),
             primary,
-            self.registry,
+            self.metrics_registry(),
             Arc::new(vec![]),
         );
         pool.skip_setup();
         pool
     }
 
-    fn subgraph_store(self) -> Arc<SubgraphStore> {
+    fn subgraph_store(&self) -> Arc<SubgraphStore> {
         self.store_and_pools().0.subgraph_store()
     }
 
-    fn subscription_manager(self) -> Arc<SubscriptionManager> {
+    fn subscription_manager(&self) -> Arc<SubscriptionManager> {
         let primary = self.config.primary_store();
         Arc::new(SubscriptionManager::new(
             self.logger.clone(),
@@ -526,26 +526,32 @@ impl Context {
         ))
     }
 
-    fn store(self) -> Arc<Store> {
+    fn store(&self) -> Arc<Store> {
         let (store, _) = self.store_and_pools();
         store
     }
 
-    fn pools(self) -> HashMap<Shard, ConnectionPool> {
+    fn pools(&self) -> HashMap<Shard, ConnectionPool> {
         let (_, pools) = self.store_and_pools();
         pools
     }
 
-    async fn store_builder(self) -> StoreBuilder {
-        StoreBuilder::new(&self.logger, &self.node_id, &self.config, self.registry).await
+    async fn store_builder(&self) -> StoreBuilder {
+        StoreBuilder::new(
+            &self.logger,
+            &self.node_id,
+            &self.config,
+            self.metrics_registry(),
+        )
+        .await
     }
 
-    fn store_and_pools(self) -> (Arc<Store>, HashMap<Shard, ConnectionPool>) {
+    fn store_and_pools(&self) -> (Arc<Store>, HashMap<Shard, ConnectionPool>) {
         let (subgraph_store, pools) = StoreBuilder::make_subgraph_store_and_pools(
             &self.logger,
             &self.node_id,
             &self.config,
-            self.registry,
+            self.metrics_registry(),
         );
 
         for pool in pools.values() {
@@ -563,20 +569,20 @@ impl Context {
         (store, pools)
     }
 
-    fn store_and_primary(self) -> (Arc<Store>, ConnectionPool) {
+    fn store_and_primary(&self) -> (Arc<Store>, ConnectionPool) {
         let (store, pools) = self.store_and_pools();
         let primary = pools.get(&*PRIMARY_SHARD).expect("there is a primary pool");
         (store, primary.clone())
     }
 
-    fn block_store_and_primary_pool(self) -> (Arc<BlockStore>, ConnectionPool) {
+    fn block_store_and_primary_pool(&self) -> (Arc<BlockStore>, ConnectionPool) {
         let (store, pools) = self.store_and_pools();
 
         let primary = pools.get(&*PRIMARY_SHARD).unwrap();
         (store.block_store(), primary.clone())
     }
 
-    fn graphql_runner(self) -> Arc<GraphQlRunner<Store, PanicSubscriptionManager>> {
+    fn graphql_runner(&self) -> Arc<GraphQlRunner<Store, PanicSubscriptionManager>> {
         let logger = self.logger.clone();
         let registry = self.registry.clone();
 
