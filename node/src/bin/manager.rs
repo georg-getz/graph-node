@@ -9,9 +9,11 @@ use graph::{
     },
     prometheus::Registry,
 };
+use graph_chain_ethereum::EthereumNetworks;
 use graph_core::MetricsRegistry;
 use graph_graphql::prelude::GraphQlRunner;
 use graph_node::{
+    chain::create_ethereum_networks,
     config::{self, Config as Cfg},
     manager::{commands, PanicSubscriptionManager},
     store_builder::StoreBuilder,
@@ -599,6 +601,12 @@ impl Context {
             registry,
         ))
     }
+
+    async fn ethereum_networks(&self) -> anyhow::Result<EthereumNetworks> {
+        let logger = self.logger.clone();
+        let registry = self.metrics_registry();
+        create_ethereum_networks(logger, registry, &self.config).await
+    }
 }
 
 #[tokio::main]
@@ -834,10 +842,21 @@ async fn main() -> anyhow::Result<()> {
             use FixBlockSubCommand::*;
 
             if let Some(chain_store) = ctx.store().block_store().chain_store(&cmd.network_name) {
+                let ethereum_networks = ctx.ethereum_networks().await?;
+                let ethereum_adapter = ethereum_networks
+                    .networks
+                    .get(&cmd.network_name)
+                    .map(|adapters| adapters.cheapest())
+                    .flatten()
+                    .ok_or(anyhow::anyhow!(
+                        "Failed to obtain an Ethereum adapter for chain '{}'",
+                        cmd.network_name
+                    ))?;
+
                 match cmd.method {
-                    ByHash { hash } => by_hash(chain_store, &hash).await,
-                    ByNumber { number } => by_number(chain_store, number).await,
-                    ByRange { range } => by_range(chain_store, &range).await,
+                    ByHash { hash } => by_hash(chain_store, &ethereum_adapter, &hash).await,
+                    ByNumber { number } => by_number(chain_store, &ethereum_adapter, number).await,
+                    ByRange { range } => by_range(chain_store, &ethereum_adapter, &range).await,
                     TruncateCache { no_confirm } => truncate(chain_store, no_confirm),
                 }
             } else {
