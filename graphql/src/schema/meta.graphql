@@ -29,3 +29,11 @@ enum _SubgraphErrorPolicy_ {
   "If the subgraph has indexing errors, data will be omitted. The default."
   deny
 }
+
+"Pagination information for the current connection"
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
