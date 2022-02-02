@@ -3,7 +3,10 @@ use git_testament::{git_testament, render_testament};
 use graph::{
     data::graphql::effort::LoadManager,
     log::logger,
-    prelude::{anyhow, chrono, info, o, slog, tokio, Logger, NodeId},
+    prelude::{
+        anyhow::{self, Context as AnyhowContextTrait},
+        chrono, info, o, slog, tokio, Logger, NodeId,
+    },
     prometheus::Registry,
 };
 use graph_core::MetricsRegistry;
@@ -22,14 +25,6 @@ use std::{collections::HashMap, env, num::ParseIntError, sync::Arc, time::Durati
 use structopt::StructOpt;
 
 git_testament!(TESTAMENT);
-
-macro_rules! die {
-    ($fmt:expr, $($arg:tt)*) => {{
-        use std::io::Write;
-        writeln!(&mut ::std::io::stderr(), $fmt, $($arg)*).unwrap();
-        ::std::process::exit(1)
-    }}
-}
 
 lazy_static! {
     static ref RENDERED_TESTAMENT: String = render_testament!(TESTAMENT);
@@ -601,7 +596,7 @@ impl Context {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
 
     // Set up logger
@@ -617,13 +612,8 @@ async fn main() {
         render_testament!(TESTAMENT)
     );
 
-    let mut config = match Cfg::load(&logger, &opt.clone().into()) {
-        Err(e) => {
-            eprintln!("configuration error: {}", e);
-            std::process::exit(1);
-        }
-        Ok(config) => config,
-    };
+    let mut config = Cfg::load(&logger, &opt.clone().into()).context("Configuration error")?;
+
     if opt.pool_size > 0 && !opt.cmd.use_configured_pool_size() {
         // Override pool size from configuration
         for shard in config.stores.values_mut() {
@@ -633,18 +623,12 @@ async fn main() {
             }
         }
     }
+    let node = NodeId::new(&opt.node_id).map_err(|()| anyhow::anyhow!("Invalid node id"))?;
 
-    let node = match NodeId::new(&opt.node_id) {
-        Err(()) => {
-            eprintln!("invalid node id: {}", opt.node_id);
-            std::process::exit(1);
-        }
-        Ok(node) => node,
-    };
     let ctx = Context::new(logger.clone(), node, config);
 
     use Command::*;
-    let result = match opt.cmd {
+    match opt.cmd {
         TxnSpeed { delay } => commands::txn_speed::run(ctx.primary_pool(), delay),
         Info {
             name,
@@ -851,15 +835,12 @@ async fn main() {
                     TruncateCache { no_confirm } => truncate(chain_store, no_confirm),
                 }
             } else {
-                Err(anyhow!(
+                Err(anyhow::anyhow!(
                     "Could not find a network named '{}'",
                     &cmd.network_name
                 ))
             }
         }
-    };
-    if let Err(e) = result {
-        die!("error: {}", e)
     }
 }
 
