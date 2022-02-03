@@ -21,6 +21,8 @@ use graph_store_postgres::{
 use graph_node::config::{self, Config as Cfg};
 use graph_node::manager::commands;
 
+const VERSION_LABEL_KEY: &str = "version";
+
 git_testament!(TESTAMENT);
 
 macro_rules! die {
@@ -64,6 +66,8 @@ pub struct Opt {
         help = "the size for connection pools. Set to 0\n to use pool size from configuration file\n corresponding to NODE_ID"
     )]
     pub pool_size: u32,
+    #[structopt(long, help = "version label, used for prometheus metrics")]
+    pub version_label: Option<String>,
     #[structopt(subcommand)]
     pub cmd: Command,
 }
@@ -416,8 +420,18 @@ struct Context {
 }
 
 impl Context {
-    fn new(logger: Logger, node_id: NodeId, config: Cfg) -> Self {
-        let prometheus_registry = Arc::new(Registry::new());
+    fn new(logger: Logger, node_id: NodeId, config: Cfg, version_label: Option<String>) -> Self {
+        let prometheus_registry = Arc::new(
+            Registry::new_custom(
+                None,
+                version_label.map(|label| {
+                    let mut m = HashMap::<String, String>::new();
+                    m.insert(VERSION_LABEL_KEY.into(), label);
+                    m
+                }),
+            )
+            .expect("unable to build prometheus registry"),
+        );
         let registry = Arc::new(MetricsRegistry::new(
             logger.clone(),
             prometheus_registry.clone(),
@@ -587,7 +601,7 @@ async fn main() {
         }
         Ok(node) => node,
     };
-    let ctx = Context::new(logger.clone(), node, config);
+    let ctx = Context::new(logger.clone(), node, config, opt.version_label);
 
     use Command::*;
     let result = match opt.cmd {
