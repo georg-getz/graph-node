@@ -11,8 +11,9 @@ use structopt::StructOpt;
 use graph::{
     log::logger,
     prelude::{info, o, slog, tokio, Logger, NodeId},
+    url::Url,
 };
-use graph_node::{manager::PanicSubscriptionManager, store_builder::StoreBuilder};
+use graph_node::{manager::PanicSubscriptionManager, store_builder::StoreBuilder, MetricsContext};
 use graph_store_postgres::{
     connection_pool::ConnectionPool, BlockStore, Shard, Store, SubgraphStore, SubscriptionManager,
     PRIMARY_SHARD,
@@ -20,6 +21,8 @@ use graph_store_postgres::{
 
 use graph_node::config::{self, Config as Cfg};
 use graph_node::manager::commands;
+
+const VERSION_LABEL_KEY: &str = "version";
 
 git_testament!(TESTAMENT);
 
@@ -55,7 +58,7 @@ pub struct Opt {
         default_value = "default",
         value_name = "NODE_ID",
         env = "GRAPH_NODE_ID",
-        help = "a unique identifier for this node\n"
+        help = "a unique identifier for this node.\nShould have the same value between consecutive node restarts\n"
     )]
     pub node_id: String,
     #[structopt(
@@ -64,6 +67,10 @@ pub struct Opt {
         help = "the size for connection pools. Set to 0\n to use pool size from configuration file\n corresponding to NODE_ID"
     )]
     pub pool_size: u32,
+    #[structopt(long, value_name = "URL", help = "Base URL for forking subgraphs")]
+    pub fork_base: Option<String>,
+    #[structopt(long, help = "version label, used for prometheus metrics")]
+    pub version_label: Option<String>,
     #[structopt(subcommand)]
     pub cmd: Command,
 }
@@ -144,7 +151,9 @@ pub enum Command {
         /// The deployments to rewind
         names: Vec<String>,
     },
-    /// Deploy and run an arbitrary subgraph, up to a certain block (for dev and testing purposes) -- WARNING: WILL RUN MIGRATIONS ON THE DB, DO NOT USE IN PRODUCTION
+    /// Deploy and run an arbitrary subgraph up to a certain block, although it can surpass it by a few blocks, it's not exact (use for dev and testing purposes) -- WARNING: WILL RUN MIGRATIONS ON THE DB, DO NOT USE IN PRODUCTION
+    ///
+    /// Also worth noting that the deployed subgraph will be removed at the end.
     Run {
         /// Network name (must fit one of the chain)
         network_name: String,
@@ -154,6 +163,9 @@ pub enum Command {
 
         /// Highest block number to process before stopping (inclusive)
         stop_block: i32,
+
+        /// Prometheus push gateway endpoint.
+        prometheus_host: Option<String>,
     },
     /// Check and interrogate the configuration
     ///
@@ -405,12 +417,30 @@ struct Context {
     logger: Logger,
     node_id: NodeId,
     config: Cfg,
+    fork_base: Option<Url>,
     registry: Arc<MetricsRegistry>,
+    pub prometheus_registry: Arc<Registry>,
 }
 
 impl Context {
-    fn new(logger: Logger, node_id: NodeId, config: Cfg) -> Self {
-        let prometheus_registry = Arc::new(Registry::new());
+    fn new(
+        logger: Logger,
+        node_id: NodeId,
+        config: Cfg,
+        fork_base: Option<Url>,
+        version_label: Option<String>,
+    ) -> Self {
+        let prometheus_registry = Arc::new(
+            Registry::new_custom(
+                None,
+                version_label.map(|label| {
+                    let mut m = HashMap::<String, String>::new();
+                    m.insert(VERSION_LABEL_KEY.into(), label);
+                    m
+                }),
+            )
+            .expect("unable to build prometheus registry"),
+        );
         let registry = Arc::new(MetricsRegistry::new(
             logger.clone(),
             prometheus_registry.clone(),
@@ -420,7 +450,9 @@ impl Context {
             logger,
             node_id,
             config,
+            fork_base,
             registry,
+            prometheus_registry,
         }
     }
 
@@ -473,8 +505,15 @@ impl Context {
         pools
     }
 
-    async fn store_builder(self) -> StoreBuilder {
-        StoreBuilder::new(&self.logger, &self.node_id, &self.config, self.registry).await
+    async fn store_builder(&self) -> StoreBuilder {
+        StoreBuilder::new(
+            &self.logger,
+            &self.node_id,
+            &self.config,
+            self.fork_base.clone(),
+            self.registry.clone(),
+        )
+        .await
     }
 
     fn store_and_pools(self) -> (Arc<Store>, HashMap<Shard, ConnectionPool>) {
@@ -482,6 +521,7 @@ impl Context {
             &self.logger,
             &self.node_id,
             &self.config,
+            self.fork_base,
             self.registry,
         );
 
@@ -536,6 +576,7 @@ impl Context {
 async fn main() {
     let opt = Opt::from_args();
 
+    let version_label = opt.version_label.clone();
     // Set up logger
     let logger = match env::var_os("GRAPH_LOG") {
         Some(_) => logger(false),
@@ -573,7 +614,25 @@ async fn main() {
         }
         Ok(node) => node,
     };
-    let ctx = Context::new(logger.clone(), node, config);
+
+    let fork_base = match opt.fork_base {
+        Some(url) => match Url::parse(&url) {
+            Err(e) => {
+                eprintln!("invalid fork base URL: {}", e);
+                std::process::exit(1);
+            }
+            Ok(url) => Some(url),
+        },
+        None => None,
+    };
+
+    let ctx = Context::new(
+        logger.clone(),
+        node,
+        config,
+        fork_base,
+        version_label.clone(),
+    );
 
     use Command::*;
     let result = match opt.cmd {
@@ -652,19 +711,27 @@ async fn main() {
             network_name,
             subgraph,
             stop_block,
+            prometheus_host,
         } => {
             let logger = ctx.logger.clone();
             let config = ctx.config();
             let registry = ctx.metrics_registry().clone();
             let node_id = ctx.node_id().clone();
             let store_builder = ctx.store_builder().await;
+            let job_name = version_label.clone();
+            let metrics_ctx = MetricsContext {
+                prometheus: ctx.prometheus_registry.clone(),
+                registry: registry.clone(),
+                prometheus_host,
+                job_name,
+            };
 
             commands::run::run(
                 logger,
                 store_builder,
                 network_name,
                 config,
-                registry,
+                metrics_ctx,
                 node_id,
                 subgraph,
                 stop_block,

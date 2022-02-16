@@ -21,7 +21,7 @@ use graph::{
 };
 use graph::{
     blockchain::{Block, BlockchainMap},
-    components::store::{DeploymentId, DeploymentLocator, ModificationsAndCache},
+    components::store::{DeploymentId, DeploymentLocator, ModificationsAndCache, SubgraphFork},
 };
 use lazy_static::lazy_static;
 use std::collections::{BTreeSet, HashMap};
@@ -57,6 +57,7 @@ struct IndexingInputs<C: Blockchain> {
     start_blocks: Vec<BlockNumber>,
     stop_block: Option<BlockNumber>,
     store: Arc<dyn WritableStore>,
+    debug_fork: Option<Arc<dyn SubgraphFork>>,
     triggers_adapter: Arc<C::TriggersAdapter>,
     chain: Arc<C>,
     templates: Arc<Vec<C::DataSourceTemplate>>,
@@ -352,6 +353,11 @@ where
 
         let templates = Arc::new(manifest.templates.clone());
 
+        // Obtain the debug fork from the subgraph store
+        let debug_fork = self
+            .subgraph_store
+            .debug_fork(&deployment.hash, logger.clone())?;
+
         // Create a subgraph instance from the manifest; this moves
         // ownership of the manifest and host builder into the new instance
         let stopwatch_metrics = StopwatchMetrics::new(
@@ -407,6 +413,7 @@ where
             start_blocks,
             stop_block,
             store,
+            debug_fork,
             triggers_adapter,
             chain,
             templates,
@@ -471,19 +478,19 @@ async fn new_block_stream<C: Blockchain>(
     let block_stream = match is_firehose {
         true => chain.new_firehose_block_stream(
             inputs.deployment.clone(),
-            inputs.store.clone(),
+            inputs.store.block_cursor(),
             inputs.start_blocks.clone(),
             Arc::new(filter.clone()),
             block_stream_metrics.clone(),
             inputs.unified_api_version.clone(),
         ),
         false => {
-            let start_block = inputs.store.block_ptr();
+            let current_ptr = inputs.store.block_ptr();
 
             chain.new_polling_block_stream(
                 inputs.deployment.clone(),
                 inputs.start_blocks.clone(),
-                start_block,
+                current_ptr,
                 Arc::new(filter.clone()),
                 block_stream_metrics.clone(),
                 inputs.unified_api_version.clone(),
@@ -522,12 +529,6 @@ where
 
     loop {
         debug!(logger, "Starting or restarting subgraph");
-
-        // Clear entity cache when subgraph starts.
-        //
-        // This is done to be safe and sure that there's no state that's
-        // out of sync from the database.
-        ctx.state.entity_lfu_cache = LfuCache::new();
 
         let block_stream_canceler = CancelGuard::new();
         let block_stream_cancel_handle = block_stream_canceler.handle();
@@ -618,20 +619,11 @@ where
                     );
                     continue;
                 }
+                // Scenario where this can happen: 1504c9d8-36e4-45bb-b4f2-71cf58789ed9
                 None => unreachable!("The block stream stopped producing blocks"),
             };
 
             let block_ptr = block.ptr();
-
-            match inputs.stop_block.clone() {
-                Some(stop_block) => {
-                    if block_ptr.number > stop_block {
-                        info!(&logger, "stop block reached for subgraph");
-                        return Ok(());
-                    }
-                }
-                _ => {}
-            }
 
             if block.trigger_count() > 0 {
                 subgraph_metrics
@@ -730,6 +722,13 @@ where
                         // And restart the subgraph
                         break;
                     }
+
+                    if let Some(stop_block) = &inputs.stop_block {
+                        if block_ptr.number >= *stop_block {
+                            info!(&logger, "stop block reached for subgraph");
+                            return Ok(());
+                        }
+                    }
                 }
                 Err(BlockProcessingError::Canceled) => {
                     debug!(&logger, "Subgraph block stream shut down cleanly");
@@ -742,6 +741,9 @@ where
                     //
                     // This is done to be safe and sure that there's no state that's
                     // out of sync from the database.
+                    //
+                    // Without it, POI changes on failure would be kept in the entity cache
+                    // and be transacted incorrectly in the next run.
                     ctx.state.entity_lfu_cache = LfuCache::new();
 
                     deployment_failed.set(1.0);
@@ -907,6 +909,7 @@ async fn process_block<T: RuntimeHostBuilder<C>, C: Blockchain>(
         &block,
         triggers,
         &causality_region,
+        &inputs.debug_fork,
     )
     .await
     {
@@ -997,6 +1000,7 @@ async fn process_block<T: RuntimeHostBuilder<C>, C: Blockchain>(
                 block_state,
                 proof_of_indexing.cheap_clone(),
                 &causality_region,
+                &inputs.debug_fork,
             )
             .await
             .map_err(|e| {
@@ -1188,6 +1192,7 @@ async fn process_triggers<C: Blockchain>(
     block: &Arc<C::Block>,
     triggers: Vec<C::TriggerData>,
     causality_region: &str,
+    debug_fork: &Option<Arc<dyn SubgraphFork>>,
 ) -> Result<BlockState<C>, MappingError> {
     use graph::blockchain::TriggerData;
 
@@ -1201,6 +1206,7 @@ async fn process_triggers<C: Blockchain>(
                 block_state,
                 proof_of_indexing.cheap_clone(),
                 causality_region,
+                debug_fork,
             )
             .await
             .map_err(move |mut e| {

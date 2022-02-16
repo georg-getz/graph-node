@@ -7,6 +7,7 @@ use crate::config::{Config, ProviderDetails};
 use crate::manager::deployment::Deployment;
 use crate::manager::PanicSubscriptionManager;
 use crate::store_builder::StoreBuilder;
+use crate::MetricsContext;
 use ethereum::{EthereumNetworks, ProviderEthRpcMetrics};
 use futures::future::join_all;
 use futures::TryFutureExt;
@@ -36,7 +37,7 @@ pub async fn run(
     store_builder: StoreBuilder,
     network_name: String,
     config: Config,
-    metrics_registry: Arc<MetricsRegistry>,
+    metrics_ctx: MetricsContext,
     node_id: NodeId,
     subgraph: String,
     stop_block: BlockNumber,
@@ -46,11 +47,12 @@ pub async fn run(
         subgraph, stop_block
     );
 
+    let metrics_registry = metrics_ctx.registry.clone();
     let logger_factory = LoggerFactory::new(logger.clone(), None);
 
     // FIXME: Hard-coded IPFS config, take it from config file instead?
     let ipfs_clients: Vec<_> =
-        create_ipfs_clients(&logger, &vec!["http://127.0.0.1:5001".to_string()]);
+        create_ipfs_clients(&logger, &vec!["https://api.thegraph.com/ipfs/".to_string()]);
 
     // Convert the clients into a link resolver. Since we want to get past
     // possible temporary DNS failures, make the resolver retry
@@ -171,6 +173,7 @@ pub async fn run(
         subgraph_name.clone(),
         subgraph_hash.clone(),
         node_id.clone(),
+        None,
     )
     .await?;
 
@@ -194,6 +197,8 @@ pub async fn run(
             .unwrap()
             .unwrap();
 
+        debug!(&logger, "subgraph block: {:?}", block_ptr);
+
         if block_ptr.number >= stop_block {
             info!(
                 &logger,
@@ -202,8 +207,27 @@ pub async fn run(
             break;
         }
     }
+
+    // FIXME: wait for instance manager to stop.
+    // If we remove the subgraph first, it will panic on:
+    // 1504c9d8-36e4-45bb-b4f2-71cf58789ed9
+    tokio::time::sleep(Duration::from_millis(4000)).await;
+
     info!(&logger, "Removing subgraph {}", name);
     subgraph_store.clone().remove_subgraph(subgraph_name)?;
+
+    if let Some(host) = metrics_ctx.prometheus_host {
+        let mfs = metrics_ctx.prometheus.gather();
+        let job_name = match metrics_ctx.job_name {
+            Some(name) => name,
+            None => "graphman run".into(),
+        };
+
+        tokio::task::spawn_blocking(move || {
+            prometheus::push_metrics(&job_name, HashMap::new(), &host, mfs, None)
+        })
+        .await??;
+    }
 
     Ok(())
 }
