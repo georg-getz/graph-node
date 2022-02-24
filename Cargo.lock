@@ -56,9 +56,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.53"
+version = "1.0.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94a45b455c14666b85fc40a019e8ab9eb75e3a124e05494f5397122bc9eb06e0"
+checksum = "7a99269dff3bc004caa411f38845c20303f1e393ca2bd6581576fa3a7f59577d"
 
 [[package]]
 name = "arc-swap"
@@ -1416,7 +1416,7 @@ dependencies = [
 
 [[package]]
 name = "graph"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "Inflector",
  "anyhow",
@@ -1450,7 +1450,7 @@ dependencies = [
  "prost-types",
  "rand 0.6.5",
  "reqwest",
- "semver 1.0.4",
+ "semver 1.0.6",
  "serde",
  "serde_derive",
  "serde_json",
@@ -1479,7 +1479,7 @@ dependencies = [
 
 [[package]]
 name = "graph-chain-ethereum"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "anyhow",
  "dirs-next",
@@ -1496,7 +1496,7 @@ dependencies = [
  "mockall",
  "prost",
  "prost-types",
- "semver 1.0.4",
+ "semver 1.0.6",
  "serde",
  "test-store",
  "tiny-keccak 1.5.0",
@@ -1505,7 +1505,7 @@ dependencies = [
 
 [[package]]
 name = "graph-chain-near"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "base64 0.13.0",
  "diesel",
@@ -1524,7 +1524,7 @@ dependencies = [
 
 [[package]]
 name = "graph-core"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1544,7 +1544,7 @@ dependencies = [
  "lazy_static",
  "lru_time_cache",
  "pretty_assertions 1.1.0",
- "semver 1.0.4",
+ "semver 1.0.6",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -1554,7 +1554,7 @@ dependencies = [
 
 [[package]]
 name = "graph-graphql"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "Inflector",
  "anyhow",
@@ -1576,14 +1576,14 @@ dependencies = [
 
 [[package]]
 name = "graph-mock"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "graph",
 ]
 
 [[package]]
 name = "graph-node"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "assert_cli",
  "clap",
@@ -1620,7 +1620,7 @@ dependencies = [
 
 [[package]]
 name = "graph-runtime-derive"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "anyhow",
  "quote",
@@ -1629,21 +1629,21 @@ dependencies = [
 
 [[package]]
 name = "graph-runtime-test"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "graph",
  "graph-chain-ethereum",
  "graph-core",
  "graph-mock",
  "graph-runtime-wasm",
- "semver 1.0.4",
+ "semver 1.0.6",
  "test-store",
  "wasmtime",
 ]
 
 [[package]]
 name = "graph-runtime-wasm"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1661,7 +1661,7 @@ dependencies = [
  "never",
  "parity-wasm",
  "pwasm-utils",
- "semver 1.0.4",
+ "semver 1.0.6",
  "strum",
  "strum_macros",
  "uuid 0.8.2",
@@ -1670,7 +1670,7 @@ dependencies = [
 
 [[package]]
 name = "graph-server-http"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "futures 0.1.31",
  "graph",
@@ -1684,7 +1684,7 @@ dependencies = [
 
 [[package]]
 name = "graph-server-index-node"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "either",
  "futures 0.3.16",
@@ -1700,7 +1700,7 @@ dependencies = [
 
 [[package]]
 name = "graph-server-json-rpc"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "graph",
  "jsonrpc-http-server",
@@ -1710,7 +1710,7 @@ dependencies = [
 
 [[package]]
 name = "graph-server-metrics"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "futures 0.1.31",
  "graph",
@@ -1722,7 +1722,7 @@ dependencies = [
 
 [[package]]
 name = "graph-server-websocket"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "anyhow",
  "futures 0.1.31",
@@ -1738,7 +1738,7 @@ dependencies = [
 
 [[package]]
 name = "graph-store-postgres"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "Inflector",
  "anyhow",
@@ -1777,7 +1777,7 @@ dependencies = [
 
 [[package]]
 name = "graph-tests"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "anyhow",
  "bollard",
@@ -3687,7 +3687,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfa0f585226d2e68097d4f95d113b15b83a82e819ab25717ec0590d9584ef366"
 dependencies = [
- "semver 1.0.4",
+ "semver 1.0.6",
 ]
 
 [[package]]
@@ -3843,9 +3843,9 @@ dependencies = [
 
 [[package]]
 name = "semver"
-version = "1.0.4"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "568a8e6258aa33c13358f81fd834adb854c6f7c9468520910a9b1e8fac068012"
+checksum = "a4a3381e03edd24287172047536f20cabde766e2cd3e65e6b00fb3af51c4f38d"
 dependencies = [
  "serde",
 ]
@@ -4326,7 +4326,7 @@ dependencies = [
 
 [[package]]
 name = "test-store"
-version = "0.25.0"
+version = "0.25.1"
 dependencies = [
  "diesel",
  "graph",

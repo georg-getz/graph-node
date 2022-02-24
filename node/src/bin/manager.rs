@@ -385,12 +385,21 @@ pub enum IndexCommand {
     ///
     /// This command may be time-consuming.
     Create {
-        /// The id of the deployment
+        /// The id of the deployment.
+        ///
+        /// Can be expressed either as its Qm-hash form or as its SQL schema identifier.
+        #[structopt(empty_values = false)]
         id: String,
-        /// The Entity name, in camel case.
+        /// The Entity name.
+        ///
+        /// Can be expressed either in upper camel case (as its GraphQL definition) or in snake case
+        /// (as its SQL table name).
         #[structopt(empty_values = false)]
         entity: String,
-        /// The Field names, in camel case.
+        /// The Field names.
+        ///
+        /// Each field can be expressed either in camel case (as its GraphQL definition) or in snake
+        /// case (as its SQL colmun name).
         #[structopt(min_values = 1, required = true)]
         fields: Vec<String>,
         /// The index method. Defaults to `btree`.
@@ -399,6 +408,32 @@ pub enum IndexCommand {
             possible_values = &["btree", "hash", "gist", "spgist", "gin", "brin"]
         )]
         method: String,
+    },
+    /// Lists existing indexes for a given Entity
+    List {
+        /// The id of the deployment.
+        ///
+        /// Can be expressed either as its Qm-hash form or as its SQL schema identifier.
+        #[structopt(empty_values = false)]
+        id: String,
+        /// The Entity name.
+        ///
+        /// Can be expressed either in upper camel case (as its GraphQL definition) or in snake case
+        /// (as its SQL table name).
+        #[structopt(empty_values = false)]
+        entity: String,
+    },
+
+    /// Drops an index for a given deployment, concurrently
+    Drop {
+        /// The id of the deployment.
+        ///
+        /// Can be expressed either as its Qm-hash form or as its SQL schema identifier.
+        #[structopt(empty_values = false)]
+        id: String,
+        /// The name of the index to be dropped
+        #[structopt(empty_values = false)]
+        index_name: String,
     },
 }
 
@@ -615,14 +650,25 @@ async fn main() {
         Ok(node) => node,
     };
 
-    let fork_base = match opt.fork_base {
-        Some(url) => match Url::parse(&url) {
-            Err(e) => {
-                eprintln!("invalid fork base URL: {}", e);
-                std::process::exit(1);
+    let fork_base = match &opt.fork_base {
+        Some(url) => {
+            // Make sure the endpoint ends with a terminating slash.
+            let url = if !url.ends_with("/") {
+                let mut url = url.clone();
+                url.push('/');
+                Url::parse(&url)
+            } else {
+                Url::parse(url)
+            };
+
+            match url {
+                Err(e) => {
+                    eprintln!("invalid fork base URL: {}", e);
+                    std::process::exit(1);
+                }
+                Ok(url) => Some(url),
             }
-            Ok(url) => Some(url),
-        },
+        }
         None => None,
     };
 
@@ -802,14 +848,16 @@ async fn main() {
                 }
                 Show { nsp, table } => commands::stats::show(ctx.pools(), nsp, table),
                 Analyze { id, entity } => {
-                    let store = ctx.store();
+                    let (store, primary_pool) = ctx.store_and_primary();
                     let subgraph_store = store.subgraph_store();
-                    commands::stats::analyze(subgraph_store, id, entity).await
+                    commands::stats::analyze(subgraph_store, primary_pool, id, &entity).await
                 }
             }
         }
         Index(cmd) => {
             use IndexCommand::*;
+            let (store, primary_pool) = ctx.store_and_primary();
+            let subgraph_store = store.subgraph_store();
             match cmd {
                 Create {
                     id,
@@ -817,9 +865,21 @@ async fn main() {
                     fields,
                     method,
                 } => {
-                    let store = ctx.store();
-                    let subgraph_store = store.subgraph_store();
-                    commands::index::create(subgraph_store, id, entity, fields, method).await
+                    commands::index::create(
+                        subgraph_store,
+                        primary_pool,
+                        &id,
+                        &entity,
+                        fields,
+                        method,
+                    )
+                    .await
+                }
+                List { id, entity } => {
+                    commands::index::list(subgraph_store, primary_pool, id, &entity).await
+                }
+                Drop { id, index_name } => {
+                    commands::index::drop(subgraph_store, primary_pool, &id, &index_name).await
                 }
             }
         }

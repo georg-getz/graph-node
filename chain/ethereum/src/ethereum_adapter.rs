@@ -1664,6 +1664,11 @@ async fn filter_call_triggers_from_unsuccessful_transactions(
             "failed to obtain transaction hash from call triggers"
         ))?;
 
+    // Return early if there are no transaction hashes
+    if transaction_hashes.is_empty() {
+        return Ok(block);
+    }
+
     // And obtain all Transaction values for the calls in this block.
     let transactions: Vec<&Transaction> = {
         match &block.block {
@@ -1683,11 +1688,6 @@ async fn filter_call_triggers_from_unsuccessful_transactions(
     // Confidence check: Did we collect all transactions for the current call triggers?
     if transactions.len() != transaction_hashes.len() {
         bail!("failed to find transactions in block for the given call triggers")
-    }
-
-    // Return early if there are no transactions to inspect
-    if transactions.is_empty() {
-        return Ok(block);
     }
 
     // We'll also need the receipts for those transactions. In this step we collect all receipts
